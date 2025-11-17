@@ -47,7 +47,15 @@ impl App {
 
     fn draw(&self, frame: &mut Frame) {
         // Outer block with title and instructions
-        let title = Line::from(" Developer News ".bold());
+        let title = Line::from(vec![
+            " ".into(),
+            "De".blue().bold(),
+            "veloper ".bold(),
+            "Ne".blue().bold(),
+            "ws ".bold(),
+            "TUI".blue().bold(),
+            " ".into(),
+        ]);
         let instructions = if self.viewing_article {
             Line::from(vec![
                 " Scroll Down ".into(),
@@ -204,8 +212,7 @@ impl App {
         let mut lines = vec![
             Line::from(article.title.as_str()).style(Style::default().fg(Color::Cyan).bold()),
             Line::from(""),
-            Line::from(format!("By: {}", article.author))
-                .style(Style::default().fg(Color::Yellow)),
+            Line::from(format!("By: {}", article.author)).style(Style::default().fg(Color::Yellow)),
             Line::from(""),
         ];
 
@@ -354,16 +361,10 @@ impl App {
 }
 
 fn main() -> io::Result<()> {
-    println!("Fetching articles from backend...");
-
     let articles = match fetch_articles() {
-        Ok(articles) => {
-            println!("Fetched {} articles", articles.len());
-            articles
-        }
+        Ok(articles) => articles,
         Err(e) => {
             eprintln!("Failed to fetch articles: {}", e);
-            eprintln!("Make sure the backend is running at {}", BACKEND_URL);
             return Ok(());
         }
     };

@@ -1,7 +1,19 @@
 [package]
 name = "denetui"
-version = "0.1.0"
+version = "0.1.3"
 edition = "2024"
+description = "Terminal UI for browsing top dev.to articles"
+authors = ["Your Name <your.email@example.com>"]
+license = "MIT"
+repository = "https://github.com/yourusername/denetui"
+homepage = "https://github.com/yourusername/denetui"
+readme = "README.md"
+keywords = ["tui", "terminal", "devto", "news", "cli"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "denetui"
+path = "src/main.rs"
 
 [dependencies]
 crossterm = "0.29.0"
