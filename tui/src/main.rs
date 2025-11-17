@@ -7,7 +7,7 @@ use ratatui::{
     prelude::*,
     style::Stylize,
     symbols::border,
-    text::Line,
+    text::{Line, Text},
     widgets::{Block, Paragraph},
 };
 use serde::Deserialize;
@@ -26,7 +26,6 @@ pub struct App {
 
 #[derive(Debug, Default, Deserialize)]
 pub struct Article {
-    id: u64,
     title: String,
     author: String,
     content: String,
@@ -52,9 +51,9 @@ impl App {
         let instructions = if self.viewing_article {
             Line::from(vec![
                 " Scroll Down ".into(),
-                "<^D>".blue().bold(),
+                "<^d>".blue().bold(),
                 " Scroll Up ".into(),
-                "<^U>".blue().bold(),
+                "<^u>".blue().bold(),
                 " Back ".into(),
                 "<Esc> ".blue().bold(),
             ])
@@ -158,19 +157,29 @@ impl App {
     fn draw_single_article(&self, frame: &mut Frame, area: Rect) {
         let article_idx = self.get_selected_article_index();
         if let Some(article) = self.articles.get(article_idx) {
-            let widget = Paragraph::new(vec![
-                Line::from(format!("By: {}", article.author)).bold(),
+            let block = Block::bordered()
+                .border_set(border::ROUNDED)
+                .border_style(Style::default().fg(Color::Blue));
+            let inner = block.inner(area);
+            frame.render_widget(block, area);
+
+            // Build full content with title, author, and markdown
+            let mut lines = vec![
+                Line::from(article.title.as_str()).style(Style::default().fg(Color::Cyan).bold()),
                 Line::from(""),
-                Line::from(article.content.as_str()),
-            ])
-            .wrap(ratatui::widgets::Wrap { trim: false })
-            .scroll((self.scroll_offset, 0))
-            .block(
-                Block::bordered()
-                    .title(article.title.as_str())
-                    .border_set(border::DOUBLE),
-            );
-            frame.render_widget(widget, area);
+                Line::from(format!("By: {}", article.author))
+                    .style(Style::default().fg(Color::Yellow)),
+                Line::from(""),
+            ];
+
+            // Add markdown-rendered content
+            let markdown_text = tui_markdown::from_str(&article.content);
+            lines.extend(markdown_text.lines);
+
+            let widget = Paragraph::new(Text::from(lines))
+                .wrap(ratatui::widgets::Wrap { trim: false })
+                .scroll((self.scroll_offset, 0));
+            frame.render_widget(widget, inner);
         }
     }
 
@@ -185,18 +194,26 @@ impl App {
     fn article_widget<'a>(&self, article: &'a Article, selected: bool) -> Paragraph<'a> {
         let block = if selected {
             Block::bordered()
-                .title(article.title.as_str())
                 .border_set(border::ROUNDED)
                 .border_style(Style::default().fg(Color::Blue))
         } else {
-            Block::bordered()
-                .title(article.title.as_str())
-                .border_set(border::ROUNDED)
+            Block::bordered().border_set(border::ROUNDED)
         };
 
-        let text = format!("By: {}\n\n{}", article.author, article.content);
+        // Build text with styled title and author, then markdown content
+        let mut lines = vec![
+            Line::from(article.title.as_str()).style(Style::default().fg(Color::Cyan).bold()),
+            Line::from(""),
+            Line::from(format!("By: {}", article.author))
+                .style(Style::default().fg(Color::Yellow)),
+            Line::from(""),
+        ];
 
-        Paragraph::new(text)
+        // Add markdown-rendered content
+        let markdown_text = tui_markdown::from_str(&article.content);
+        lines.extend(markdown_text.lines);
+
+        Paragraph::new(Text::from(lines))
             .wrap(ratatui::widgets::Wrap { trim: false })
             .block(block)
     }
@@ -281,12 +298,10 @@ impl App {
             if self.selected_index == 1 {
                 self.selected_index = 2;
             }
-        } else {
-            if self.selected_index == 0 {
-                self.selected_index = 1;
-            } else if self.selected_index == 2 {
-                self.selected_index = 3;
-            }
+        } else if self.selected_index == 0 {
+            self.selected_index = 1;
+        } else if self.selected_index == 2 {
+            self.selected_index = 3;
         }
     }
 
@@ -295,12 +310,10 @@ impl App {
             if self.selected_index == 1 || self.selected_index == 2 {
                 self.selected_index = 0;
             }
-        } else {
-            if self.selected_index == 2 {
-                self.selected_index = 0;
-            } else if self.selected_index == 3 {
-                self.selected_index = 1;
-            }
+        } else if self.selected_index == 2 {
+            self.selected_index = 0;
+        } else if self.selected_index == 3 {
+            self.selected_index = 1;
         }
     }
 
@@ -309,12 +322,10 @@ impl App {
             if self.selected_index == 0 {
                 self.selected_index = 1;
             }
-        } else {
-            if self.selected_index == 0 {
-                self.selected_index = 2;
-            } else if self.selected_index == 1 {
-                self.selected_index = 3;
-            }
+        } else if self.selected_index == 0 {
+            self.selected_index = 2;
+        } else if self.selected_index == 1 {
+            self.selected_index = 3;
         }
     }
 
