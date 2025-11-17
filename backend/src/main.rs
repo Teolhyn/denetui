@@ -3,17 +3,17 @@ use chrono::{DateTime, Duration, Utc};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tokio::sync::RwLock;
 
 const DEV_TO_API: &str = "https://dev.to/api";
+const CACHE_DURATION_HOURS: i64 = 24;
 
 // Response from /articles/latest
 #[derive(Debug, Deserialize)]
 struct ArticleListItem {
     id: u64,
-    title: String,
     positive_reactions_count: i32,
     published_at: DateTime<Utc>,
-    user: User,
 }
 
 // Response from /articles/{id}
@@ -30,7 +30,7 @@ struct User {
     name: String,
 }
 
-// What we send to TUI
+// What we send to TUI (cached)
 #[derive(Debug, Serialize, Clone)]
 struct Article {
     id: u64,
@@ -39,18 +39,23 @@ struct Article {
     content: String,
 }
 
+struct Cache {
+    articles: Vec<Article>,
+    last_fetched: Option<DateTime<Utc>>,
+}
+
 struct AppState {
     client: Client,
     api_key: String,
+    cache: RwLock<Cache>,
 }
 
 async fn fetch_latest_articles(
     client: &Client,
     api_key: &str,
-) -> Result<Vec<ArticleListItem>, Box<dyn std::error::Error>> {
+) -> Result<Vec<ArticleListItem>, Box<dyn std::error::Error + Send + Sync>> {
     let mut all_articles = Vec::new();
 
-    // Fetch multiple pages to get yesterday's articles
     for page in 1..=10 {
         let url = format!("{}/articles/latest?per_page=100&page={}", DEV_TO_API, page);
         let response = client
@@ -81,7 +86,7 @@ async fn fetch_article_content(
     client: &Client,
     api_key: &str,
     id: u64,
-) -> Result<ArticleFull, Box<dyn std::error::Error>> {
+) -> Result<ArticleFull, Box<dyn std::error::Error + Send + Sync>> {
     let url = format!("{}/articles/{}", DEV_TO_API, id);
     let response = client
         .get(&url)
@@ -91,7 +96,6 @@ async fn fetch_article_content(
         .await?;
 
     let text = response.text().await?;
-
     let article: ArticleFull = serde_json::from_str(&text)?;
     Ok(article)
 }
@@ -115,23 +119,15 @@ fn get_top_articles(mut articles: Vec<ArticleListItem>, count: usize) -> Vec<Art
     articles.into_iter().take(count).collect()
 }
 
-async fn get_articles(
-    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
-) -> Json<Vec<Article>> {
-    // Fetch latest articles
-    let latest = match fetch_latest_articles(&state.client, &state.api_key).await {
-        Ok(articles) => articles,
-        Err(e) => {
-            eprintln!("Failed to fetch articles: {}", e);
-            return Json(vec![]);
-        }
-    };
+async fn refresh_cache(
+    state: &AppState,
+) -> Result<Vec<Article>, Box<dyn std::error::Error + Send + Sync>> {
+    println!("Fetching articles from dev.to API...");
 
-    // Filter to yesterday and get top 27
+    let latest = fetch_latest_articles(&state.client, &state.api_key).await?;
     let yesterday_articles = filter_yesterday_articles(latest);
     let top_articles = get_top_articles(yesterday_articles, 27);
 
-    // Fetch full content for each
     let mut result = Vec::new();
     for article_item in top_articles {
         match fetch_article_content(&state.client, &state.api_key, article_item.id).await {
@@ -149,19 +145,57 @@ async fn get_articles(
         }
     }
 
-    Json(result)
+    println!("Cached {} articles", result.len());
+
+    let mut cache = state.cache.write().await;
+    cache.articles = result.clone();
+    cache.last_fetched = Some(Utc::now());
+
+    Ok(result)
+}
+
+async fn get_articles(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+) -> Json<Vec<Article>> {
+    let should_refresh = {
+        let cache = state.cache.read().await;
+        match cache.last_fetched {
+            None => true,
+            Some(last_fetched) => {
+                let age = Utc::now() - last_fetched;
+                age > Duration::hours(CACHE_DURATION_HOURS)
+            }
+        }
+    };
+
+    if should_refresh {
+        match refresh_cache(&state).await {
+            Ok(articles) => Json(articles),
+            Err(e) => {
+                eprintln!("Failed to refresh cache: {}", e);
+                let cache = state.cache.read().await;
+                Json(cache.articles.clone())
+            }
+        }
+    } else {
+        println!("Serving from cache");
+        let cache = state.cache.read().await;
+        Json(cache.articles.clone())
+    }
 }
 
 #[tokio::main]
 async fn main() {
-    // Load .env from project root (parent of backend dir)
     dotenvy::from_path("../.env").expect("Failed to load .env file");
-
     let api_key = std::env::var("DEV_TO_API_KEY").expect("DEV_TO_API_KEY not set in .env");
 
     let state = Arc::new(AppState {
         client: Client::new(),
         api_key,
+        cache: RwLock::new(Cache {
+            articles: Vec::new(),
+            last_fetched: None,
+        }),
     });
 
     let app = Router::new()
