@@ -1,14 +1,13 @@
 [package]
 name = "denetui"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2024"
 description = "Terminal UI for browsing top dev.to articles"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["Teemu Hynnä teemu.hynna@gmail.com"]
 license = "MIT"
-repository = "https://github.com/yourusername/denetui"
-homepage = "https://github.com/yourusername/denetui"
-readme = "README.md"
-keywords = ["tui", "terminal", "devto", "news", "cli"]
+repository = "https://github.com/teolhyn/denetui"
+readme = "../README.md"
+keywords = ["cli", "devto", "news", "terminal", "tui"]
 categories = ["command-line-utilities"]
 
 [[bin]]
@@ -17,8 +16,8 @@ path = "src/main.rs"
 
 [dependencies]
 crossterm = "0.29.0"
+dotenvy = "0.15"
 ratatui = { version = "0.29.0", features = ["all-widgets"] }
-reqwest = { version = "0.12", features = ["json", "blocking"] }
+reqwest = { version = "0.12", features = ["blocking", "json"] }
 serde = { version = "1", features = ["derive"] }
 tui-markdown = { version = "0.3", features = ["highlight-code"] }
-dotenvy = "0.15"
