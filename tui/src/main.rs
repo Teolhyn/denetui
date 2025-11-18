@@ -12,8 +12,6 @@ use ratatui::{
 };
 use serde::Deserialize;
 
-const BACKEND_URL: &str = "https://denetui.duckdns.org";
-
 #[derive(Debug, Default)]
 pub struct App {
     articles: Vec<Article>,
@@ -31,9 +29,11 @@ pub struct Article {
     content: String,
 }
 
-fn fetch_articles() -> Result<Vec<Article>, reqwest::Error> {
-    let url = format!("{}/articles", BACKEND_URL);
-    reqwest::blocking::get(&url)?.json()
+fn fetch_articles() -> Result<Vec<Article>, Box<dyn std::error::Error>> {
+    dotenvy::dotenv().ok();
+    let backend_url = std::env::var("BACKEND_URL")?;
+    let url = format!("{}/articles", backend_url);
+    Ok(reqwest::blocking::get(&url)?.json()?)
 }
 
 impl App {
