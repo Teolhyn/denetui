@@ -57,7 +57,8 @@ async fn fetch_latest_articles(
     let mut all_articles = Vec::new();
 
     for page in 1..=10 {
-        let url = format!("{}/articles/latest?per_page=100&page={}", DEV_TO_API, page);
+        let url = format!("{}/articles/latest?per_page=1000&page={}", DEV_TO_API, page);
+        println!("Fetching page {}...", page);
         let response = client
             .get(&url)
             .header("api-key", api_key)
@@ -65,12 +66,27 @@ async fn fetch_latest_articles(
             .send()
             .await?;
 
-        if !response.status().is_success() {
+        let status = response.status();
+        if !status.is_success() {
+            println!("Page {} failed with status: {}", page, status);
             break;
         }
 
         let text = response.text().await?;
-        let articles: Vec<ArticleListItem> = serde_json::from_str(&text)?;
+        let articles: Vec<ArticleListItem> = match serde_json::from_str(&text) {
+            Ok(a) => a,
+            Err(e) => {
+                println!("Failed to parse page {}: {}", page, e);
+                break;
+            }
+        };
+
+        println!(
+            "Page {}: {} articles, oldest: {:?}",
+            page,
+            articles.len(),
+            articles.last().map(|a| a.published_at)
+        );
 
         if articles.is_empty() {
             break;
@@ -79,6 +95,7 @@ async fn fetch_latest_articles(
         all_articles.extend(articles);
     }
 
+    println!("Total fetched: {} articles", all_articles.len());
     Ok(all_articles)
 }
 
@@ -101,17 +118,24 @@ async fn fetch_article_content(
 }
 
 fn filter_yesterday_articles(articles: Vec<ArticleListItem>) -> Vec<ArticleListItem> {
-    let yesterday = Utc::now() - Duration::days(1);
+    let now = Utc::now();
+    let yesterday = now - Duration::days(1);
     let yesterday_start = yesterday.date_naive().and_hms_opt(0, 0, 0).unwrap();
     let yesterday_end = yesterday.date_naive().and_hms_opt(23, 59, 59).unwrap();
 
-    articles
+    println!("Current time (UTC): {}", now);
+    println!("Filtering for yesterday: {} to {}", yesterday_start, yesterday_end);
+
+    let filtered: Vec<ArticleListItem> = articles
         .into_iter()
         .filter(|a| {
             let published = a.published_at.naive_utc();
             published >= yesterday_start && published <= yesterday_end
         })
-        .collect()
+        .collect();
+
+    println!("Articles from yesterday: {}", filtered.len());
+    filtered
 }
 
 fn get_top_articles(mut articles: Vec<ArticleListItem>, count: usize) -> Vec<ArticleListItem> {
@@ -122,14 +146,19 @@ fn get_top_articles(mut articles: Vec<ArticleListItem>, count: usize) -> Vec<Art
 async fn refresh_cache(
     state: &AppState,
 ) -> Result<Vec<Article>, Box<dyn std::error::Error + Send + Sync>> {
+    println!("=== Starting cache refresh ===");
     println!("Fetching articles from dev.to API...");
 
     let latest = fetch_latest_articles(&state.client, &state.api_key).await?;
     let yesterday_articles = filter_yesterday_articles(latest);
+
+    println!("Getting top 27 from {} articles", yesterday_articles.len());
     let top_articles = get_top_articles(yesterday_articles, 27);
+    println!("Top articles to fetch: {}", top_articles.len());
 
     let mut result = Vec::new();
-    for article_item in top_articles {
+    for (i, article_item) in top_articles.iter().enumerate() {
+        println!("Fetching article {}/{}: id={}", i + 1, top_articles.len(), article_item.id);
         match fetch_article_content(&state.client, &state.api_key, article_item.id).await {
             Ok(full) => {
                 result.push(Article {
@@ -145,7 +174,7 @@ async fn refresh_cache(
         }
     }
 
-    println!("Cached {} articles", result.len());
+    println!("=== Cache refresh complete: {} articles ===", result.len());
 
     let mut cache = state.cache.write().await;
     cache.articles = result.clone();
@@ -186,7 +215,7 @@ async fn get_articles(
 
 #[tokio::main]
 async fn main() {
-    dotenvy::from_path("../.env").expect("Failed to load .env file");
+    dotenvy::dotenv().expect("Failed to load .env file");
     let api_key = std::env::var("DEV_TO_API_KEY").expect("DEV_TO_API_KEY not set in .env");
 
     let state = Arc::new(AppState {
@@ -202,10 +231,10 @@ async fn main() {
         .route("/articles", get(get_articles))
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
         .await
         .unwrap();
 
-    println!("Server running on http://127.0.0.1:3000");
+    println!("Server running on http://0.0.0.0:3000");
     axum::serve(listener, app).await.unwrap();
 }

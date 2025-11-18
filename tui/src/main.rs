@@ -12,7 +12,7 @@ use ratatui::{
 };
 use serde::Deserialize;
 
-const BACKEND_URL: &str = "http://127.0.0.1:3000";
+const BACKEND_URL: &str = "https://denetui.duckdns.org";
 
 #[derive(Debug, Default)]
 pub struct App {
